@@ -142,7 +142,10 @@ _EXIT2      equ $FF4C       ; Terminate with exit code
 _WAIT       equ $FF4D       ; Get child exit code
 _FILES      equ $FF4E       ; Find first file
 _NFILES     equ $FF4F       ; Find next file
-_SETPDB     equ $FF50       ; Switch management process
+; NOTE: Calls $FF50-$FF7F were RENUMBERED to $FF80-$FFAF in Human68k v3.
+; The equates below use v2 numbering (from Sharp XC v1.01 doscall.mac).
+; Human68k v3 accepts BOTH the old and new numbers for compatibility.
+_SETPDB     equ $FF50       ; Switch management process (v3: $FF80)
 _GETPDB     equ $FF51       ; Get current process info
 _SETENV     equ $FF52       ; Set environment variable
 _GETENV     equ $FF53       ; Get environment variable
@@ -269,7 +272,7 @@ INPPTR: dc.b    80      ; max chars
 ```asm
     dc.w    _KEYSNS
 ```
-- **Returns**: D0.L = 0 (input available) or -1 (no input)
+- **Returns**: D0.L = 0 (no input available) or -1 (input available)
 
 ### $FF0C -- _KFLUSH
 

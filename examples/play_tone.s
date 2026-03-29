@@ -79,9 +79,9 @@ start:
     bsr     opm_write
 
     ; --- Set pitch: middle C (C4) ---
-    ; KC reg $28: octave=4, note C=13 -> $4D
+    ; KC reg $28: octave=4, note C=14 -> $4E
     move.b  #$28, d0
-    move.b  #$4D, d1
+    move.b  #$4E, d1
     bsr     opm_write
     ; KF reg $30: key fraction=0
     move.b  #$30, d0

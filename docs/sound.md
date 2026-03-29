@@ -48,9 +48,7 @@ opm_write:
 
 The `tst.b` instruction sets the N (negative) flag from bit 7 of the status byte, so `bmi` (branch if minus) loops while BUSY is set. This is the idiomatic pattern used in X68000 sound drivers.
 
-**Timing note**: On the X68000, the OPM clock is 4 MHz (not the common 3.579545 MHz used in many arcade boards). This affects timer period calculations and the A440 tuning point.
-
-**UNCERTAIN**: Some sources claim the X68000 OPM clock is exactly 4.000 MHz, while others suggest 3.579545 MHz. The MAME source for x68k uses 4 MHz. This needs verification against actual hardware measurements. The timer formulas below use a variable phi_M to accommodate either value.
+**Timing note**: On the X68000, the OPM clock is exactly **4.000 MHz** (derived from a 16 MHz crystal divided by 4, confirmed in MAME source: `YM2151(config, m_ym2151, 16_MHz_XTAL / 4)`). This is different from the common 3.579545 MHz used in many arcade boards, and affects timer period calculations and the A440 tuning point.
 
 #### YM2151 Architecture Overview
 
@@ -121,17 +119,17 @@ The YM2151 uses a non-linear ("gappy") encoding for the note value within each o
 | C# | 0 | G | 8 |
 | D | 1 | G# | 9 |
 | D# | 2 | A | 10 ($A) |
-| E | 4 | A# | 11 ($B) |
-| F | 5 | B | 12 ($C) |
-| F# | 6 | C | 13 ($D) |
+| E | 4 | A# | 12 ($C) |
+| F | 5 | B | 13 ($D) |
+| F# | 6 | C | 14 ($E) |
 
-**IMPORTANT**: Note that C is encoded as 13, NOT 0. Values 3, 7, 14, and 15 are unused gaps. This table is confirmed by the YM2151 datasheet and consistent across emulator implementations (MAME, XM6, mdxmini).
+**IMPORTANT**: Note that C is encoded as 14, NOT 0. Values 3, 7, 11, and 15 are unused gaps. The gap structure is confirmed by the ymfm emulation core (used by MAME): the 4-bit note field is adjusted by `note - (note >> 2)` to index 12 semitones, producing gaps at those positions.
 
 To encode a pitch: `KC = (octave << 4) | note_value`
 
-For example, middle C (C4): octave=4, note value for C=13, so KC = `(4 << 4) | 13 = $4D`.
+For example, middle C (C4): octave=4, note value for C=14, so KC = `(4 << 4) | 14 = $4E`.
 
-**UNCERTAIN**: Some sources place C at note value 14 rather than 13, and some number the initial note as C# while others call it Db. The table above follows the convention used in MAME and the Atari 7800 development wiki. The safest approach is to test against known frequencies on actual hardware or a verified emulator.
+**NOTE**: Some older sources and tutorials show C=13 rather than C=14 (with gaps at 3, 7, 14, 15 instead of 3, 7, 11, 15). The ymfm phase-step mapping in MAME definitively shows that note value 11 is a gap (duplicate of value 10), making the valid semitone sequence 0,1,2,4,5,6,8,9,10,12,13,14. The safest approach is to test against known A440 tuning on actual hardware or a verified emulator.
 
 #### The 8 FM Algorithms
 

@@ -92,6 +92,7 @@ IOCS (Input/Output Control System) calls use TRAP #15 with the function number i
 | [Graphics System](docs/graphics.md) | GVRAM, TVRAM, CRTC, video controller, sprites/BG, IOCS drawing calls, palette system |
 | [Sound System](docs/sound.md) | YM2151 FM synthesis, MSM6258 ADPCM, OPM register map, IOCS sound calls, MXDRV/Z-MUSIC drivers |
 | [Disk I/O and File System](docs/disk-io.md) | File operations, floppy/SCSI disk, sector-level IOCS calls, FDC hardware |
+| [Interrupts and Exceptions](docs/interrupts.md) | Exception vectors, MFP registers, V-blank/raster interrupts, keyboard scan codes |
 
 ### Code Examples
 

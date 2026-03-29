@@ -327,21 +327,34 @@ When a DOS call fails, `D0.L` contains a negative value. The error codes are def
 | -2 | `DOSE_NOENT` | File not found |
 | -3 | `DOSE_NODIR` | Directory not found |
 | -4 | `DOSE_MFILE` | Too many open files |
-| -5 | `DOSE_ISDIR` | Cannot open a directory as a file |
+| -5 | `DOSE_ISDIR` | Cannot access directory or volume label |
 | -6 | `DOSE_BADF` | Invalid file handle |
+| -7 | | Memory management area corrupted |
 | -8 | `DOSE_NOMEM` | Not enough memory |
 | -9 | `DOSE_ILGMPTR` | Invalid memory block address |
+| -10 | | Illegal environment specified |
 | -11 | `DOSE_ILGFMT` | Invalid executable format |
-| -12 | `DOSE_ILGARG` | Invalid argument |
+| -12 | `DOSE_ILGARG` | Abnormal access mode when opening file |
 | -13 | `DOSE_ILGFNAME` | Invalid filename |
 | -14 | `DOSE_ILGPARM` | Invalid parameter |
 | -15 | `DOSE_ILGDRV` | Invalid drive number |
+| -16 | | Cannot delete current directory |
+| -17 | | Device incapable of IOCTRL |
+| -18 | | No more matching files (_FILES/_NFILES) |
 | -19 | `DOSE_RDONLY` | File/disk is read-only |
 | -20 | `DOSE_EXISTDIR` | Directory already exists |
-| -21 | `DOSE_NOTEMPTY` | Directory is not empty |
+| -21 | `DOSE_NOTEMPTY` | Directory is not empty (cannot delete) |
+| -22 | | Cannot rename; destination name already exists |
 | -23 | `DOSE_DISKFULL` | Disk full (cannot write/create) |
+| -24 | | Directory full (cannot create entry) |
 | -25 | `DOSE_CANTSEEK` | Seek to invalid position |
-| -33 | `DOSE_LCKERR` | File lock error |
+| -26 | | Already in supervisor mode |
+| -27 | | Thread with same name already exists |
+| -28 | | IPC buffer write prohibited |
+| -29 | | Cannot start more background processes |
+| -32 | | Insufficient lock regions |
+| -33 | `DOSE_LCKERR` | File lock error (access denied) |
+| -34 | | Handler for drive is already open |
 | -80 | `DOSE_EXISTFILE` | File already exists (returned by `_NEWFILE`) |
 
 For memory allocation errors (`_MALLOC`, `_SETBLOCK`):

@@ -90,16 +90,18 @@ start:
 ; -------------------------------------------------------
 
 ; KC values for C major scale in octave 4:
-;   C4=$4D  D4=$41  E4=$44  F4=$45  G4=$48  A4=$4A  B4=$4C  C5=$5D
+;   C4=$4E  D4=$41  E4=$44  F4=$45  G4=$48  A4=$4A  B4=$4D  C5=$5E
+; Note: C=14($E), D=1, E=4, F=5, G=8, A=10($A), B=13($D)
+; Gaps at 3, 7, 11, 15.  Octave increments at C# (note value 0).
 scale_notes:
-    dc.b    $4D                 ; C4  (oct=4, note=13)
+    dc.b    $4E                 ; C4  (oct=4, note=14)
     dc.b    $41                 ; D4  (oct=4, note=1)
     dc.b    $44                 ; E4  (oct=4, note=4)
     dc.b    $45                 ; F4  (oct=4, note=5)
     dc.b    $48                 ; G4  (oct=4, note=8)
     dc.b    $4A                 ; A4  (oct=4, note=10)
-    dc.b    $4C                 ; B4  (oct=4, note=12)
-    dc.b    $5D                 ; C5  (oct=5, note=13)
+    dc.b    $4D                 ; B4  (oct=4, note=13)
+    dc.b    $5E                 ; C5  (oct=5, note=14)
 SCALE_LEN equ 8
 
 play_scale:

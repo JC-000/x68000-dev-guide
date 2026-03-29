@@ -394,7 +394,7 @@ The X68000 IOCS provides high-level drawing functions that operate on the graphi
 | Call | Code | Description |
 |------|------|-------------|
 | _CRTMOD | `$10` | Set CRT display mode (resolution, color depth) |
-| _G_CLR_ON | `$93` | Clear and enable graphic screen |
+| _G_CLR_ON | `$90` | Clear and enable graphic screen |
 
 #### Drawing Primitives
 
@@ -456,7 +456,8 @@ fill_params:
 | _SP_INIT | `$C0` | Initialize sprite system |
 | _SP_ON | `$C1` | Enable sprite display |
 | _SP_OFF | `$C2` | Disable sprite display |
-| _SP_SET | `$C5` | Set sprite position and attributes |
+| _SP_DEFCG | `$C4` | Define sprite CG pattern |
+| _SP_GTPCG | `$C5` | Read sprite CG pattern |
 | _SP_REGST | `$C6` | Register (define) a sprite |
 | _BGCTRLST | `$CA` | Set BG control state |
 | _BGSCRLST | `$C8` | Set BG scroll position |
@@ -465,9 +466,9 @@ fill_params:
 
 | Call | Code | Description |
 |------|------|-------------|
-| _HOME | `$B0` | Set display home position (hardware scroll origin) |
-| _SCROLL | `$B1` | Scroll display |
-| _WINDOW | `$AE` | Set clipping window for drawing primitives |
+| _HOME | `$B3` | Set display home position (hardware scroll origin) |
+| _SCROLL | `$1D` | Scroll display |
+| _WINDOW | `$B4` | Set clipping window for drawing primitives |
 
 ---
 
@@ -592,8 +593,7 @@ start:
 
 ; --- Clear and enable graphic screen ---
 ; NOTE: $93 > $7F so we cannot use moveq (it sign-extends, giving $FF93).
-; IOCS checks D0.W, so we must use move.w to get $0093.
-        move.w  #$0093,d0       ; IOCS _G_CLR_ON
+        move.w  #$0090,d0       ; IOCS _G_CLR_ON
         trap    #15
 
 ; --- Set palette entry 1 to red ---
@@ -639,7 +639,7 @@ rect2:  dc.w    250,100,400,300 ; x1, y1, x2, y2
 
 **How it works**:
 - Mode 4 gives a 512x512 screen with 16 colors and 4 graphic pages
-- `_G_CLR_ON` ($93) clears all graphic pages and enables the graphic screen
+- `_G_CLR_ON` ($90) clears all graphic pages and enables the graphic screen
 - `_GPALET` ($94) sets palette entries: index 1 = red, index 2 = blue
 - `_FILL` ($BA) takes a pointer in A1 to a parameter block with coordinates and color
 - The parameter block format is: x1, y1, x2, y2 (all words), color (word), linestyle (word)

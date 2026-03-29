@@ -10,9 +10,9 @@ start:
         trap    #15
 
 ; --- Clear and enable graphic screen ---
-; NOTE: $93 > $7F so we cannot use moveq (it sign-extends, giving $FF93).
-; IOCS checks D0.W, so we must use move.w to get $0093.
-        move.w  #$0093,d0       ; IOCS _G_CLR_ON
+; NOTE: $90 > $7F so we cannot use moveq (it sign-extends).
+; IOCS checks D0.W, so we must use move.w.
+        move.w  #$0090,d0       ; IOCS _G_CLR_ON
         trap    #15
 
 ; --- Set palette entry 1 to red ---
