@@ -1,0 +1,8 @@
+*.o
+*.x
+*.r
+*.xdf
+*.dim
+*.d88
+*.2hd
+.DS_Store
