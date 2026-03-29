@@ -18,72 +18,141 @@ The Sharp X68000 is a home computer released in 1987 in Japan, powered by a Moto
 | Storage | 2x 5.25" floppy (1.2 MB) | Same | Same |
 | OS | Human68k | Human68k | Human68k |
 
-## Table of Contents
+### Memory Map
 
-- [Operating System: Human68k](#operating-system-human68k)
-- [CPU and Assembly Language](#cpu-and-assembly-language)
-- [Development Tools](#development-tools)
-- [Graphics System](#graphics-system)
-- [Sound System](#sound-system)
-- [Input/Output](#inputoutput)
-- [Emulators and Modern Development](#emulators-and-modern-development)
-- [Resources](#resources)
+| Address Range | Description |
+|---------------|-------------|
+| `$000000-$0BFFFF` | Main RAM (768 KB base) |
+| `$0C0000-$0FFFFF` | Extended RAM (to 1 MB) |
+| `$100000-$BFFFFF` | Extended RAM (to 12 MB) |
+| `$C00000-$DFFFFF` | Graphic VRAM (2 MB) |
+| `$E00000-$E7FFFF` | Text VRAM (512 KB) |
+| `$E80000-$E81FFF` | CRTC registers (display timing/mode) |
+| `$E82000-$E83FFF` | Video controller (palette, priority, screen on/off) |
+| `$E84000-$E85FFF` | DMAC (HD63450) |
+| `$E86000-$E87FFF` | Supervisor area settings |
+| `$E88000-$E89FFF` | MFP (MC68901) |
+| `$E8A000-$E8BFFF` | RTC (RP5C15) |
+| `$E8C000-$E8DFFF` | Printer port |
+| `$E8E000-$E8FFFF` | System port |
+| `$E90000-$E91FFF` | FM sound -- OPM (YM2151) |
+| `$E92000-$E93FFF` | ADPCM (MSM6258) |
+| `$E94000-$E95FFF` | FDC (uPD72065) |
+| `$E96000-$E97FFF` | HDC / SCSI (MB89352) |
+| `$E98000-$E99FFF` | SCC (Z8530) -- serial, mouse |
+| `$E9A000-$E9BFFF` | I/O controller (PPI) |
+| `$EA0000-$EAFFFF` | I/O expansion area |
+| `$EB0000-$EB7FFF` | Sprite scroll data + control registers |
+| `$EB8000-$EBFFFF` | Sprite/BG pattern (PCG) data |
+| `$EC0000-$ECBFFF` | BG nametables and scroll registers |
+| `$F00000-$FBFFFF` | User I/O area |
+| `$FC0000-$FFFFFF` | BIOS ROM (256 KB) |
 
 ## Operating System: Human68k
 
 Human68k is a single-tasking DOS-like operating system developed by Hudson Soft for Sharp. It provides:
 
-- **DOS call interface** (`$FF??`) — file I/O, memory management, process control
-- **IOCS call interface** (`$00??`) — low-level hardware access (graphics, sound, input)
+- **DOS call interface** (`$FF??`) — file I/O, memory management, process control via F-line exception
+- **IOCS call interface** — low-level hardware access (graphics, sound, input) via TRAP #15
 - **Command-line shell** (`COMMAND.X`) — similar to MS-DOS `COMMAND.COM`
 - **Executable format** — `.X` (relocatable) and `.R` (absolute) executables, `.Z` (device driver)
-- **File system** — FAT12/FAT16 compatible, case-insensitive filenames (8.3 format)
+- **File system** — FAT12/FAT16 compatible, case-insensitive filenames (18.3 format)
 
-### DOS Calls
+### DOS Calls (F-Line Exception)
 
-DOS calls are invoked via `TRAP #15` with the function number in register `D0`:
-
-```asm
-    move.w  #$09, -(sp)    ; DOS _PRINT function
-    pea     message(pc)     ; pointer to string
-    DOS     _PRINT          ; macro expands to TRAP #15
-    addq.l  #6, sp
-```
-
-Key DOS functions:
-- `$01` _GETCHAR — read character from stdin
-- `$02` _PUTCHAR — write character to stdout
-- `$09` _PRINT — print string to stdout
-- `$0E` _CHGDRV — change current drive
-- `$1B` _FGETC — get character from file
-- `$3C` _CREATE — create file
-- `$3D` _OPEN — open file
-- `$3E` _CLOSE — close file
-- `$3F` _READ — read from file
-- `$40` _WRITE — write to file
-- `$4C` _EXIT2 — terminate with return code
-- `$48` _MALLOC — allocate memory
-- `$49` _MFREE — free memory
-
-### IOCS Calls
-
-IOCS (Input/Output Control System) calls are invoked via `TRAP #15` with `D0` containing the IOCS function number:
+DOS calls use the MC68000's **F-line exception** mechanism. The inline `DC.W $FFxx` word triggers Line-F vector 11; Human68k's handler extracts the low byte as the function number. Arguments are pushed on the stack before the `DC.W`, and cleaned up after:
 
 ```asm
-    moveq   #$0C, d0        ; IOCS _CRTCRAS (raster number)
-    IOCS                     ; macro expands to TRAP #15
+    pea     message(pc)     ; push pointer to NUL-terminated string
+    dc.w    $FF09           ; _PRINT -- triggers F-line exception
+    addq.l  #4,sp           ; clean up stack
+    ...
+    dc.w    $FF00           ; _EXIT -- terminate program
 ```
 
-## CPU and Assembly Language
+### IOCS Calls (TRAP #15)
 
-### MC68000 Architecture
+IOCS (Input/Output Control System) calls use TRAP #15 with the function number in `D0.W`:
 
-The MC68000 provides:
-- **8 data registers** (D0-D7) — 32-bit general purpose
-- **8 address registers** (A0-A7) — 32-bit, A7 is the stack pointer
+```asm
+    move.w  #12,d1          ; mode 12 = 512x512, 65536 colors
+    moveq   #$10,d0         ; IOCS _CRTMOD
+    trap    #15
+```
+
+**Note**: For IOCS call numbers > $7F, use `move.w` instead of `moveq` (which sign-extends).
+
+## Documentation
+
+### Reference Guides
+
+| Document | Description |
+|----------|-------------|
+| [Human68k DOS Call Reference](docs/human68k-doscall-reference.md) | Complete DOS API: ~80 calls with calling conventions, stack layouts, error codes, .X header format |
+| [Graphics System](docs/graphics.md) | GVRAM, TVRAM, CRTC, video controller, sprites/BG, IOCS drawing calls, palette system |
+| [Sound System](docs/sound.md) | YM2151 FM synthesis, MSM6258 ADPCM, OPM register map, IOCS sound calls, MXDRV/Z-MUSIC drivers |
+| [Disk I/O and File System](docs/disk-io.md) | File operations, floppy/SCSI disk, sector-level IOCS calls, FDC hardware |
+
+### Code Examples
+
+All examples use HAS.X / Motorola syntax and can be assembled with `vasmm68k_mot -Ftos` or native HAS.X + HLK.X.
+
+| Example | Description |
+|---------|-------------|
+| [hello.s](examples/hello.s) | Hello World via DOS _PRINT |
+| [pixel.s](examples/pixel.s) | Draw a pixel in 65536-color GVRAM |
+| [fillrect.s](examples/fillrect.s) | Filled rectangles via IOCS _FILL |
+| [sprite.s](examples/sprite.s) | 16x16 sprite with PCG pattern data |
+| [play_tone.s](examples/play_tone.s) | Play a single FM tone on YM2151 |
+| [scale.s](examples/scale.s) | Play a C major scale via FM synthesis |
+| [adpcm_play.s](examples/adpcm_play.s) | ADPCM sample playback via IOCS |
+| [file_write.s](examples/file_write.s) | Create and write to a file |
+| [file_read.s](examples/file_read.s) | Read a file and print to stdout |
+| [dir_list.s](examples/dir_list.s) | Directory listing with _FILES/_NFILES |
+
+## Development Tools
+
+### Native (runs on Human68k)
+
+- **HAS.X** — Hudson Assembler, standard M68000 assembler (Motorola syntax)
+- **HLK.X** — Hudson Linker, links `.O` files into `.X` executables
+- **XC** — Sharp's official C compiler
+- **DB.X** — Debugger
+
+### Cross-Development (modern host)
+
+- **[xdev68k](https://github.com/yosshin4004/xdev68k)** — Complete cross-dev environment: GCC (m68k-elf), binutils, newlib, Human68k C runtime
+- **[elf2x68k](https://github.com/yunkya2/elf2x68k)** — ELF to Human68k .X converter
+- **[vasmm68k_mot](http://www.compilers.de/vasm.html)** — Portable M68k cross-assembler (Motorola syntax)
+  ```bash
+  vasmm68k_mot -Ftos -o HELLO.X hello.s
+  ```
+- **[run68](https://github.com/kg68k/run68)** — Human68k emulator for running .X executables on the host
+
+### Emulators
+
+| Emulator | Platform | Notes |
+|----------|----------|-------|
+| **XM6 Pro-68k** | Windows | High accuracy, debugging features |
+| **XM6 TypeG** | Windows | Enhanced fork of XM6 |
+| **[XEiJ](https://stdkmd.net/xeij/)** | Cross-platform (Java) | Good debugger |
+| **[px68k](https://github.com/libretro/px68k-libretro)** | Multi | Portable, libretro core available |
+
+### Development Workflow
+
+1. Write code on modern host using vasm or m68k-elf-gcc + elf2x68k
+2. Create/mount disk image (XDF format: `dd if=/dev/zero of=disk.xdf bs=1024 count=1232`)
+3. Test in emulator (XM6 or px68k)
+4. Debug using emulator's built-in monitor/debugger
+5. Transfer to real hardware via floppy or Compact Flash adapter
+
+## MC68000 Quick Reference
+
+### Registers
+- **D0-D7** — 8 data registers (32-bit)
+- **A0-A7** — 8 address registers (32-bit, A7 = stack pointer)
 - **24-bit address bus** — 16 MB address space
 - **16-bit data bus** — despite 32-bit internal registers
-- **Supervisor/User mode** — privileged instructions in supervisor mode
 
 ### Addressing Modes
 
@@ -99,256 +168,24 @@ The MC68000 provides:
     move.l  #$1234, D0          ; immediate
 ```
 
-### X68000 Memory Map
-
-| Address Range | Description |
-|---------------|-------------|
-| `$000000-$0BFFFF` | Main RAM (768 KB base) |
-| `$0C0000-$0FFFFF` | Extended RAM (to 1 MB) |
-| `$100000-$BFFFFF` | Extended RAM (to 12 MB) |
-| `$C00000-$DFFFFF` | Graphic VRAM (2 MB) |
-| `$E00000-$E7FFFF` | Text VRAM (512 KB) |
-| `$E80000-$E8FFFF` | CRTC, video controller, DMAC |
-| `$E90000-$E9FFFF` | MFP (MC68901), RTC, printer |
-| `$E9A000-$E9BFFF` | Sprite/BG controller (CYNTHIA) |
-| `$E9C000-$E9DFFF` | Sprite/BG pattern data |
-| `$E9E000-$E9FFFF` | Reserved |
-| `$EA0000-$EA1FFF` | Floppy disk controller (uPD72065) |
-| `$EA2000-$EA3FFF` | Reserved |
-| `$EAE000-$EAFFFF` | SCSI controller (MB89352) |
-| `$EB0000-$EB7FFF` | SCC (Z8530), MIDI |
-| `$EC0000-$ECFFFF` | FM sound (YM2151) |
-| `$ED0000-$ED3FFF` | ADPCM (MSM6258) |
-| `$F00000-$FBFFFF` | User I/O area |
-| `$FC0000-$FFFFFF` | BIOS ROM (256 KB) |
-
-## Development Tools
-
-### Assemblers
-
-#### HAS.X (Hudson Assembler)
-The standard M68000 assembler for Human68k, developed by Hudson Soft:
-
-```
-HAS.X [options] source.s
-```
-- Motorola syntax
-- Supports macros, conditional assembly, include files
-- Outputs `.O` object files (Human68k relocatable format)
-
-#### gas (GNU Assembler)
-Cross-assembler via the `m68k-elf` toolchain:
-
-```bash
-m68k-elf-as -m68000 -o output.o source.s
-m68k-elf-ld -T linker.ld -o output.x output.o
-```
-
-### C Compilers
-
-#### GCC (m68k cross-compiler)
-Modern cross-compilation using GCC:
-
-```bash
-# Install cross-compiler (Debian/Ubuntu)
-sudo apt install gcc-m68k-linux-gnu
-
-# Or build m68k-elf toolchain from source
-m68k-elf-gcc -m68000 -O2 -o program.x program.c
-```
-
-#### XC (Sharp's C compiler)
-The original C compiler bundled with the X68000 development kit. Runs natively on Human68k.
-
-#### Lydux's GCC for Human68k
-A port of GCC that runs natively on Human68k or as a cross-compiler, producing Human68k executables directly.
-
-### Linkers and Utilities
-
-- **HLK.X** — Hudson Linker, links `.O` object files into `.X` executables
-- **LIB.X** — Library manager for creating/managing `.L` libraries
-- **CVT.X** — Convert absolute binary to `.R` executable
-- **DIS.X** — Disassembler
-- **DB.X** — Debugger (similar to DEBUG.COM on MS-DOS)
-
-### Modern Cross-Development Toolchain
-
-For modern development targeting the X68000:
-
-1. **Cross-assembler**: `vasmm68k_mot` (portable M68k assembler, Motorola syntax)
-   ```bash
-   vasmm68k_mot -Ftos -o output.x source.s
-   ```
-
-2. **Cross-compiler**: `m68k-elf-gcc` with custom crt0 and linker scripts
-
-3. **Disk image tools**: `xdftool` (part of amitools) or custom scripts for Human68k disk formats
-
-## Graphics System
-
-The X68000 has a sophisticated graphics system managed by the CRTC (CRT Controller) and the video controller (VINAS/VSOP):
-
-### Display Planes
-
-- **Graphics planes**: 4 planes of 512x512 pixels
-  - 16-color mode: 4 independent planes (4 bits each)
-  - 256-color mode: 2 planes (8 bits each, planes paired)
-  - 65,536-color mode: 1 plane (16 bits)
-- **Text plane**: 1024x1024 virtual, 4-bit color (16 colors)
-- **Sprite/BG**: Up to 128 sprites (16x16), 2 BG planes (8x8 or 16x16 tiles)
-
-### Sprite System (CYNTHIA)
-
-```asm
-; Sprite definition
-; Register $EB0000: sprite data
-    move.w  #x_pos, $EB0000+sprite_num*8       ; X position (0-1023)
-    move.w  #y_pos, $EB0000+sprite_num*8+2     ; Y position (0-1023)
-    move.w  #pattern, $EB0000+sprite_num*8+4   ; pattern code + attributes
-    move.w  #priority, $EB0000+sprite_num*8+6  ; priority + palette
-```
-
-### Palette
-
-- 65,536 color palette entries (16-bit: 5-5-5-1 GRBi format)
-- Separate palettes for graphics, text, and sprite planes
-
-### CRTC Registers ($E80000-$E8002F)
-
-The CRTC (HD6845 derivative) controls display timing and resolution:
-
-| Register | Address | Description |
-|----------|---------|-------------|
-| R00 | $E80000 | H total |
-| R01 | $E80002 | H sync end |
-| R02 | $E80004 | H display start |
-| R03 | $E80006 | H display end |
-| R04 | $E80008 | V total |
-| R05 | $E8000A | V sync end |
-| R06 | $E8000C | V display start |
-| R07 | $E8000E | V display end |
-| R20 | $E80028 | Memory mode / display mode |
-
-## Sound System
-
-### YM2151 (OPM) FM Synthesizer
-
-- 8 FM synthesis channels
-- 4 operators per channel
-- Mapped at `$E90003` (register select) and `$E90001` (data write)
-- LFO, noise generator, CSM speech synthesis mode
-
-```asm
-; Write to YM2151
-ym_write:
-    move.b  d0, $E90003     ; register number
-.wait:
-    btst    #7, $E90003     ; wait for busy flag
-    bne.s   .wait
-    move.b  d1, $E90001     ; data
-    rts
-```
-
-### MSM6258 ADPCM
-
-- 4-bit ADPCM playback
-- Sample rates: 3.9 kHz, 5.2 kHz, 7.8 kHz, 15.6 kHz
-- Mapped at `$E92001` (data), `$E92003` (control)
-
-### OPM Register Map (Selected)
-
-| Register | Description |
-|----------|-------------|
-| $01 | LFO reset / test |
-| $08 | Key on/off |
-| $0F | Noise enable/frequency |
-| $10 | Timer A (high) |
-| $11 | Timer A (low) |
-| $12 | Timer B |
-| $14 | Timer control / IRQ |
-| $18 | LFO frequency |
-| $19 | PMD/AMD depth |
-| $1B | CT / LFO waveform |
-| $20-$27 | Channel: RL/FB/Connect |
-| $28-$2F | Channel: KC (key code) |
-| $30-$37 | Channel: KF (key fraction) |
-| $38-$3F | Channel: PMS/AMS |
-| $40-$5F | Operator: DT1/MUL |
-| $60-$7F | Operator: TL (total level) |
-| $80-$9F | Operator: KS/AR |
-| $A0-$BF | Operator: AME/D1R |
-| $C0-$DF | Operator: DT2/D2R |
-| $E0-$FF | Operator: D1L/RR |
-
-## Input/Output
-
-### Keyboard
-
-The X68000 keyboard connects via a serial interface. Key codes are read through the MFP (MC68901) or via IOCS calls:
-
-```asm
-    moveq   #$00, d0        ; IOCS _B_KEYINP
-    IOCS                     ; wait for key, returns in D0
-```
-
-### Mouse and Joystick
-
-- Mouse: connected to SCC port
-- Joystick: directly mapped I/O ports, compatible with MSX joystick protocol
-
-```asm
-    moveq   #$03, d0        ; IOCS _MS_GETDT
-    IOCS                     ; mouse data in D0
-```
-
-### Serial Ports
-
-- **SCC (Z8530)**: 2 serial channels for RS-232C and mouse
-- **MFP (MC68901)**: keyboard interface, timers, interrupt controller
-
-## Emulators and Modern Development
-
-### Emulators
-
-| Emulator | Platform | Status | Notes |
-|----------|----------|--------|-------|
-| **XM6 Pro-68k** | Windows | Active | High accuracy, debugging features |
-| **XM6 TypeG** | Windows | Active | Fork of XM6, enhanced features |
-| **px68k** | Multi | Active | Portable, libretro core available |
-| **xm6i** | macOS/Linux | Active | XM6 port for Unix-like systems |
-
-### Development Workflow
-
-1. Write code on modern host using cross-tools (vasm, m68k-elf-gcc)
-2. Create/mount disk image
-3. Test in emulator (XM6 or px68k)
-4. Debug using emulator's built-in monitor/debugger
-5. Transfer to real hardware via floppy or Compact Flash adapter
-
-### Creating Disk Images
-
-Human68k uses 1.2 MB 2HD floppy format (77 tracks, 2 heads, 8 sectors, 1024 bytes/sector):
-
-```bash
-# Create blank disk image (XDF format)
-dd if=/dev/zero of=disk.xdf bs=1024 count=1232
-```
-
 ## Resources
 
-### Documentation
+### Primary Documentation
+- [Human68k DOS_en.txt](https://mijet.eludevisibility.org/X68000%20Technical%20Documents/English%20X68k%20Docs/DOS_en.txt) — English translation of official Human68k DOS call manual (v3.02)
+- [Data Crystal X68k](https://datacrystal.tcrf.net/wiki/X68k) — IOCS calls, DOS calls, I/O map
 - [X68000 Technical Data Book](https://gamesx.com/wiki/doku.php?id=x68000:x68000_technical_data_book) — official hardware reference
-- [Inside X68000](http://x68kdev.emuvibes.com/) — development resources and documentation
-- [Human68k Programmer's Manual](https://github.com/kg68k/Human68k-ipa) — OS API reference
+- [ChibiAkumas X68000 Assembly](https://www.chibiakumas.com/68000/x68000.php) — comprehensive tutorial with code examples
 
-### Source Code and Projects
-- [Human68k source code](https://github.com/kg68k/Human68k-ipa) — open-sourced Human68k kernel
-- [elf2x68k](https://github.com/yunkya2/elf2x68k) — ELF to Human68k .X converter
-- [xdev68k](https://github.com/yunkya2/xdev68k) — modern cross-development environment
+### Source Code
+- [Human68k source code](https://github.com/kg68k/Human68k-ipa) — open-sourced Human68k kernel (IPA release)
+- [xdev68k](https://github.com/yosshin4004/xdev68k) — modern cross-development environment
+- [FedericoTech/X68KTutorials](https://github.com/FedericoTech/X68KTutorials) — working assembly examples
+- [run68x](https://github.com/kg68k/run68x) — Human68k emulator with source
 
-### Communities
-- [X68000 Wiki](https://gamesx.com/wiki/doku.php?id=x68000:x68000) — hardware wiki
-- Various Japanese BBS archives and retro computing communities
+### Japanese Technical References
+- Inside X68000 (ASCII) — system architecture deep dive (out of print)
+- Oh!X Magazine (SoftBank, 1989-1995) — programming tutorials, some issues on archive.org
+- [InsideX68000-errata](https://github.com/kg68k/InsideX68000-errata) — corrections to Inside X68000
 
 ## License
 
