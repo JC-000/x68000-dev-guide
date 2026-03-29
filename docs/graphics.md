@@ -30,7 +30,7 @@ Layer display priority and enable/disable is controlled by the video controller 
 
 ### Graphic VRAM ($C00000-$DFFFFF)
 
-The graphic VRAM (GVRAM) is 512 KB of memory-mapped video RAM used as the primary framebuffer. It is organized as a linear buffer where each pixel occupies exactly **one word (2 bytes)**, regardless of the color mode.
+The graphic VRAM (GVRAM) occupies a 2 MB memory-mapped region (`$C00000`-`$DFFFFF`) used as the primary framebuffer. It is organized as up to 4 pages, each 512 KB, where each pixel occupies exactly **one word (2 bytes)**, regardless of the color mode.
 
 #### GVRAM Pages
 
@@ -305,9 +305,11 @@ Bit: 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
 - **CL3-CL0** (bits 11-8): Palette block number (0-15)
 - **PT7-PT0** (bits 7-0): Pattern number (0-255)
 
-**Note on coordinates**: The visible screen area is offset. For a 256x256 display, sprite coordinates (128, 128) correspond to the top-left corner of the screen. For 512x512, coordinates (128, 128) are also the top-left.
+**Note on coordinates**: The visible screen area is offset by +16. To place a sprite at screen position (0, 0), write X=16, Y=16 to the hardware registers. This offset is confirmed by the MAME X68000 source (`draw_sprites` subtracts 16 from the register value).
 
-**UNCERTAINTY FLAG**: The exact bit positions within word 2 and word 3 vary slightly across sources. The above is based on ChibiAkumas tutorials and cross-referenced with MAME emulator source. Consult the X68000 Technical Data Book for definitive bit assignments.
+**Sprite priority (word 3)**: Priority 0 means the sprite is **not displayed** (hidden). Values 1-3 are valid display priorities.
+
+The word 2 bit layout (V/H flip, palette, pattern) is confirmed by the MAME X68000 sprite renderer source code (`draw_sprites` in `x68k_v.cpp`).
 
 #### Sprite Pattern (PCG) Data ($EB8000+)
 
@@ -329,12 +331,12 @@ Pattern N starts at `$EB8000 + N * 128`.
 
 The X68000 has 2 BG planes. Each BG plane is a 64x64 tile map where each tile references one of the 256 PCG patterns (shared with sprites). Each tile entry is one word:
 
-- **BG0 nametable**: `$EBC000`-`$EBDFFF`
-- **BG1 nametable**: `$EBE000`-`$EBFFFF`
+- **BG1 nametable**: `$EBC000`-`$EBDFFF`
+- **BG0 nametable**: `$EBE000`-`$EBFFFF`
 
 Each nametable word references a pattern number (0-255) and optional attributes (palette block, flip). BG tiles can be 8x8 or 16x16 depending on configuration.
 
-**UNCERTAINTY FLAG**: The exact BG nametable addresses and word format are reconstructed from multiple sources (MAME, ChibiAkumas, GameSX). The addresses above are consistent across sources but the bit layout of each nametable word should be verified against the Technical Data Book.
+BG nametable addresses and BG0/BG1 assignment confirmed by MAME `spriteram_w()`: BG1 at word offset $2000 from $EB8000 = $EBC000, BG0 at word offset $3000 = $EBE000.
 
 ---
 
@@ -712,13 +714,13 @@ start:
 
 ; --- Set sprite 0 attributes ---
 ; Sprite 0 scroll register at $EB0000
-; Word 0: X position (add 128 offset for visible area)
-; Word 1: Y position (add 128 offset for visible area)
+; Word 0: X position (add 16 offset for visible area)
+; Word 1: Y position (add 16 offset for visible area)
 ; Word 2: VH flip + palette block + pattern number
 ; Word 3: priority
 
-        move.w  #128+100,$EB0000    ; X = 100 (visible), +128 offset
-        move.w  #128+80,$EB0002     ; Y = 80 (visible), +128 offset
+        move.w  #16+100,$EB0000     ; X = 100 (visible), +16 offset
+        move.w  #16+80,$EB0002      ; Y = 80 (visible), +16 offset
         move.w  #$0100,$EB0004      ; palette block 1, pattern 0, no flip
         move.w  #$0003,$EB0006      ; priority 3 (in front)
 
@@ -739,12 +741,12 @@ start:
 - `_SP_INIT` ($C0) initializes the sprite controller and clears all sprites
 - PCG pattern data at `$EB8000` is written directly: each byte holds 2 pixels (high nibble = left, low nibble = right), using color index 1
 - Sprite 0 scroll registers at `$EB0000` set position, attributes, and priority
-- Sprite X/Y coordinates have a +128 offset: coordinate 128 = screen position 0
+- Sprite X/Y coordinates have a +16 offset: register value 16 = screen position 0
 - Word 2 ($0100) = palette block 1, pattern 0, no flip
 - Word 3 = priority value (higher = more in front)
 - Setting bit 6 of `$E82600` enables the sprite display layer
 
-**UNCERTAINTY FLAG**: The sprite coordinate offset (+128) is well-documented across sources for standard display modes. The priority value encoding in word 3 is less thoroughly documented in English sources -- some sources show it as a simple priority level, others as additional attribute bits. The value $0003 is used in ChibiAkumas examples.
+**Note on priority**: Word 3 is a 2-bit priority field (bits 1-0). Priority 0 = sprite hidden (not displayed). Values 1-3 are valid display priorities. The value $0003 in the example above places the sprite at the highest priority level.
 
 ---
 

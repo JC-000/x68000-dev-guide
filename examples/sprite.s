@@ -59,13 +59,13 @@ start:
 
 ; --- Set sprite 0 attributes ---
 ; Sprite 0 scroll register at $EB0000
-; Word 0: X position (add 128 offset for visible area)
-; Word 1: Y position (add 128 offset for visible area)
+; Word 0: X position (add 16 offset for visible area)
+; Word 1: Y position (add 16 offset for visible area)
 ; Word 2: VH flip + palette block + pattern number
-; Word 3: priority
+; Word 3: priority (0=hidden, 1-3=visible)
 
-        move.w  #128+100,$EB0000    ; X = 100 (visible), +128 offset
-        move.w  #128+80,$EB0002     ; Y = 80 (visible), +128 offset
+        move.w  #16+100,$EB0000     ; X = 100 (visible), +16 offset
+        move.w  #16+80,$EB0002      ; Y = 80 (visible), +16 offset
         move.w  #$0100,$EB0004      ; palette block 1, pattern 0, no flip
         move.w  #$0003,$EB0006      ; priority 3 (in front)
 
