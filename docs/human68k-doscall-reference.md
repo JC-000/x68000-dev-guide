@@ -591,7 +591,7 @@ FIL: dc.b   'EDIT.X',0
     dc.w    _FILES
     lea     10(sp), sp
 ```
-- FILBUF format (53 bytes): search ATR(1), drive(1), dir cluster(2), FAT(2), sector(2), position(2), filename(8), ext(3), file ATR(1), time(2), date(2), size(4), packed name(22).
+- FILBUF format (53 bytes): search ATR(1), drive(1), dir cluster(2), FAT(2), sector(2), position(2), filename(8), ext(3), file ATR(1), time(2), date(2), size(4), packed name(23).
 
 ### $FF4F -- _NFILES (find next)
 

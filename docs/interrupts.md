@@ -52,14 +52,14 @@ The MFP generates vectors $40-$4F, mapped to addresses `$000100`-`$00013C`. Thes
 
 | Address | Vector | Source | Description |
 |---------|--------|--------|-------------|
-| `$000100` | $40 | GPIP 7 | RTC alarm / 1 Hz signal |
-| `$000104` | $41 | GPIP 6 | External power OFF |
-| `$000108` | $42 | GPIP 5 | Front switch OFF |
+| `$000100` | $40 | GPIP 0 | RTC alarm / 1 Hz signal |
+| `$000104` | $41 | GPIP 1 | External power OFF |
+| `$000108` | $42 | GPIP 2 | Front switch OFF |
 | `$00010C` | $43 | GPIP 3 | **FM sound (OPM IRQ)** -- YM2151 timer/interrupt |
 | `$000110` | $44 | Timer D | BG processing (task switching) |
 | `$000114` | $45 | Timer C | Mouse/cursor/FDD control |
 | `$000118` | $46 | GPIP 4 | **V-DISP** (vertical blanking) |
-| `$00011C` | $47 | GPIP 0 | RTC clock |
+| `$00011C` | $47 | GPIP 5 | (active low, active edge) |
 | `$000120` | $48 | Timer B | Timer B interrupt |
 | `$000124` | $49 | USART | Key serial output error |
 | `$000128` | $4A | USART | Key serial output empty |
@@ -103,7 +103,7 @@ The MFP generates vectors $40-$4F, mapped to addresses `$000100`-`$00013C`. Thes
 
 | Address | Vector | Description |
 |---------|--------|-------------|
-| `$000200` | $6C | Internal SCSI (MB89352) interrupt |
+| `$0001B0` | $6C | Internal SCSI (MB89352) interrupt |
 | `$0003D8` | $F6 | External SCSI board interrupt |
 
 ---
@@ -161,14 +161,24 @@ The MFP (MC68901) is at `$E88000`. All registers are at **odd addresses** (8-bit
 | `$E88007` | IERA | Interrupt enable A |
 | `$E88009` | IERB | Interrupt enable B |
 | `$E8800B` | IPRA | Interrupt pending A |
-| `$E8800D` | IMRA | Interrupt mask A |
-| `$E8800F` | IMRB | Interrupt mask B |
-| `$E88011` | VR | Vector register (auto/software end-of-interrupt) |
-| `$E88013`-`$E88017` | TACR/TBCR/TCDCR | Timer control registers |
-| `$E88019` | TADR | Timer A data register |
-| `$E8801B` | TBDR | Timer B data register |
-| `$E8801D` | TCDDR | Timer C/D data register |
-| `$E8802D` | UDR | USART data register |
+| `$E8800D` | IPRB | Interrupt pending B |
+| `$E8800F` | ISRA | Interrupt in-service A |
+| `$E88011` | ISRB | Interrupt in-service B |
+| `$E88013` | IMRA | Interrupt mask A |
+| `$E88015` | IMRB | Interrupt mask B |
+| `$E88017` | VR | Vector register (auto/software end-of-interrupt) |
+| `$E88019` | TACR | Timer A control register |
+| `$E8801B` | TBCR | Timer B control register |
+| `$E8801D` | TCDCR | Timer C/D control register |
+| `$E8801F` | TADR | Timer A data register |
+| `$E88021` | TBDR | Timer B data register |
+| `$E88023` | TCDR | Timer C data register |
+| `$E88025` | TDDR | Timer D data register |
+| `$E88027` | SCR | SYNC character register |
+| `$E88029` | UCR | USART control register |
+| `$E8802B` | RSR | Receiver status register |
+| `$E8802D` | TSR | Transmitter status register |
+| `$E8802F` | UDR | USART data register |
 
 ---
 

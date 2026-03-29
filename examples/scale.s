@@ -26,7 +26,7 @@ start:
     move.b  #$C4, d1
     bsr     opm_write
 
-    ; --- Operator M1 (slot offset +$00, carrier in alg 4) ---
+    ; --- Operator M1 (slot offset +$00, modulator in alg 4) ---
     ; DT1/MUL (reg $40): DT1=0, MUL=1 (fundamental frequency)
     move.b  #$40, d0
     move.b  #$01, d1
@@ -89,18 +89,19 @@ start:
 ; play_scale: Play C major scale on channel 0
 ; -------------------------------------------------------
 
-; KC values for C major scale in octave 4:
-;   C4=$4E  D4=$41  E4=$44  F4=$45  G4=$48  A4=$4A  B4=$4D  C5=$5E
-; Note: C=14($E), D=1, E=4, F=5, G=8, A=10($A), B=13($D)
-; Gaps at 3, 7, 11, 15.  Octave increments at C# (note value 0).
+; KC values for C major scale:
+;   C=14($E), D=1, E=4, F=5, G=8, A=10($A), B=13($D)
+;   Gaps at 3, 7, 11, 15.  Octave boundary is between C and C#.
+;   C is the HIGHEST note in a YM2151 octave, so D-B after C
+;   must use the next octave number.
 scale_notes:
     dc.b    $4E                 ; C4  (oct=4, note=14)
-    dc.b    $41                 ; D4  (oct=4, note=1)
-    dc.b    $44                 ; E4  (oct=4, note=4)
-    dc.b    $45                 ; F4  (oct=4, note=5)
-    dc.b    $48                 ; G4  (oct=4, note=8)
-    dc.b    $4A                 ; A4  (oct=4, note=10)
-    dc.b    $4D                 ; B4  (oct=4, note=13)
+    dc.b    $51                 ; D4  (oct=5, note=1)
+    dc.b    $54                 ; E4  (oct=5, note=4)
+    dc.b    $55                 ; F4  (oct=5, note=5)
+    dc.b    $58                 ; G4  (oct=5, note=8)
+    dc.b    $5A                 ; A4  (oct=5, note=10)
+    dc.b    $5D                 ; B4  (oct=5, note=13)
     dc.b    $5E                 ; C5  (oct=5, note=14)
 SCALE_LEN equ 8
 

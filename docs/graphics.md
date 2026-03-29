@@ -289,8 +289,8 @@ Each sprite has 4 words (8 bytes) of attribute data. Sprite N starts at `$EB0000
 
 | Offset | Content | Description |
 |--------|---------|-------------|
-| +0 | Word 0 | X position (bits 9-0, range 0-1023; screen visible ~128-639 for 512px mode) |
-| +2 | Word 1 | Y position (bits 9-0, range 0-1023; screen visible ~128-639 for 512px mode) |
+| +0 | Word 0 | X position (bits 9-0, range 0-1023; screen visible ~16-527 for 512px mode) |
+| +2 | Word 1 | Y position (bits 9-0, range 0-1023; screen visible ~16-527 for 512px mode) |
 | +4 | Word 2 | Attributes: VH flip, color (palette block), pattern number |
 | +6 | Word 3 | Priority |
 
@@ -436,8 +436,7 @@ Offset  Size   Field
 ```asm
 ; Draw a filled red rectangle from (50,50) to (200,150)
     lea     fill_params(pc),a1
-    moveq   #$BA,d0         ; IOCS _FILL  (NOTE: $BA does not fit in moveq;
-    move.w  #$BA,d0         ;   use move.w instead since $BA > $7F)
+    move.w  #$BA,d0         ; IOCS _FILL  (NOTE: $BA > $7F, use move.w not moveq)
     trap    #15
 
 fill_params:
@@ -594,7 +593,7 @@ start:
         trap    #15
 
 ; --- Clear and enable graphic screen ---
-; NOTE: $93 > $7F so we cannot use moveq (it sign-extends, giving $FF93).
+; NOTE: $90 > $7F so we cannot use moveq (it sign-extends, giving $FF90).
         move.w  #$0090,d0       ; IOCS _G_CLR_ON
         trap    #15
 

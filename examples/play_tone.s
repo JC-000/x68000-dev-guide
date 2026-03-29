@@ -26,7 +26,7 @@ start:
     move.b  #$C4, d1
     bsr     opm_write
 
-    ; --- Operator M1 (slot offset +$00, carrier in alg 4) ---
+    ; --- Operator M1 (slot offset +$00, modulator in alg 4) ---
     ; DT1/MUL (reg $40): DT1=0, MUL=1 (fundamental frequency)
     move.b  #$40, d0
     move.b  #$01, d1
