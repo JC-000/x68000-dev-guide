@@ -40,7 +40,7 @@ Human68k follows MS-DOS conventions:
 - **Path separator**: Backslash `\` (identical to MS-DOS)
 - **Current drive**: Changed via `_CHGDRV` ($FF0E), queried via `_CURDRV` ($FF19)
 - **Current directory**: Changed via `_CHDIR` ($FF3B), queried via `_CURDIR` ($FF47)
-- **Filenames**: 18.3 format (18 characters for the name, 3 for extension) -- more generous than MS-DOS 8.3. Case-insensitive.
+- **Filenames**: 18.3 format -- **18 bytes** for the name (≈ 18 ASCII characters or 9 Shift-JIS kanji), 3 bytes for the extension. More generous than MS-DOS 8.3, and stored in the second half of a 32-byte Human68k extended directory entry (the first half remains MS-DOS-compatible 8.3, so the same disk can be read by MS-DOS tools, which will see the truncated 8.3 name). Case-insensitive. <!-- source: https://mijet.eludevisibility.org/X68000%20Technical%20Documents/English%20X68k%20Docs/DOS_en.txt -- FILBUF layout shows PACKEDNAME(18,3) -->
 - **Path example**: `A:\GAMES\PROG.X`
 - **Wildcard support**: `*` and `?` are supported in `_FILES`/`_NFILES` calls (but NOT in `_DELETE`)
 
@@ -691,7 +691,7 @@ This is distinct from the IBM PC 1.44 MB format (80 tracks, 2 heads, 18 sectors,
 **Filesystem**: Human68k uses a FAT12 or FAT16 filesystem on floppy disks, compatible in structure with MS-DOS FAT but using the different physical geometry. The BPB (BIOS Parameter Block) in the boot sector describes the disk layout.
 
 **Disk image formats**:
-- **XDF**: Raw sector dump, exactly 1,261,568 bytes (77 x 2 x 8 x 1024). The most common format.
+- **XDF**: Raw sector dump. **1,261,568 bytes** for the standard X68000 2HD-8/1024 layout (77 × 2 × 8 × 1024). XDF tooling also produces images for other Japanese 2HD layouts -- notably **2HD-9/512** (737,280 bytes, PC-98-compatible) and **2HC** (1,228,800 bytes, 80 × 2 × 15 × 512) -- so the byte count alone does not uniquely identify an XDF as the X68000 native format.
 - **DIM**: Raw dump with a 256-byte header containing geometry information.
 - **D88**: Multi-format archive used by various Japanese computer emulators.
 - **FDI, HDM, 2HD**: Various alternative formats used by different emulators.
@@ -746,36 +746,72 @@ The IOCS provides low-level disk access calls that bypass the Human68k filesyste
 | `$48` | `_B_ASSIGN` | Assign alternate track |
 | `$4D` | `_B_FORMAT` | Format a track |
 
+<!-- source: https://datacrystal.tcrf.net/wiki/X68k/IOCS (_B_READ, _B_WRITE, _B_SEEK entries) -->
+
+**PDA (Physical Device Address) encoding** -- the high byte of D1 (`D1.HB`):
+
+| PDA range | Device |
+|-----------|--------|
+| `$80-$8F` | SASI hard disk (`$80` = SASI unit 0) |
+| `$90-$93` | 2HD floppy drive (`$90` = drive 0/A, `$91` = drive 1/B, ...) |
+| `$A0-$AF` | SCSI device (`$A0` = SCSI ID 0) |
+| `$10-$13`, `$30-$33`, `$70-$73` | Reserved for ROM IOCS v1.3 / FDDEVICE.X drivers |
+
+Bits 7-4 select the device class; bits 3-0 select the unit number.
+
+**D2.L position format** depends on PDA device type:
+
+- **2HD-FD**: D2.L is a packed sector address, **not** a byte offset:
+  - bits 31-24: sector length code (`0`=128, `1`=256, `2`=512, `3`=1024 bytes)
+  - bits 23-16: track / cylinder number (0-76)
+  - bits 15-8: side (0 or 1)
+  - bits 7-0: sector number (1-8 for a 2HD disk)
+- **SASI-HD**: D2.L is a logical record number in 256-byte units (multiply by 256 to get a byte offset).
+- **SCSI**: D2.L is a logical block number; the block size is determined by the device (typically 512 or 1024 bytes).
+
 #### _B_READ ($46) -- Read Sectors
 
 ```asm
 ; Read sectors from disk
-; D1.HB = PDA (physical device address: bits 7-4 = unit, bits 3-0 = reserved)
-; D1.B  = mode (device-specific)
-; D2.L  = read position (absolute byte offset from start of disk)
+; D1.HB = PDA (see table above)
+; D1.B  = mode (ignored for SASI-HD; FDC mode bits for FD)
+; D2.L  = read position (FD: packed sector address; SASI: 256-byte record #)
 ; D3.L  = number of bytes to read
 ; A1.L  = destination buffer address
 ;
-; Returns: D0.L = status (negative = error)
+; Returns: D0.L = status (negative = error for SASI; FDC status word for FD)
 ; Note: D2, D3, A1 may be modified by this call
 
+; Example 1: read FD drive 0, track 0, side 0, sector 1 (boot sector, 1024 bytes)
     moveq   #$46,d0             ; _B_READ
-    move.l  #$90,d1             ; PDA: unit 0, floppy (example; varies)
-    move.l  #0,d2               ; read position: byte 0 (first sector)
+    move.l  #$90000000,d1       ; PDA = $90 (2HD-FD drive 0), mode = 0
+    move.l  #$03000001,d2       ; sector-size $03 (1024) | track 0 | side 0 | sector 1
     move.l  #1024,d3            ; read 1024 bytes (one sector)
     lea     sector_buf,a1       ; destination buffer
     trap    #15
     tst.l   d0
     bmi     disk_error
+
+; Example 2: read SASI unit 0, logical record 0 (256 bytes)
+    moveq   #$46,d0             ; _B_READ
+    move.l  #$80000000,d1       ; PDA = $80 (SASI unit 0)
+    moveq   #0,d2               ; record 0 (= byte offset 0)
+    move.l  #256,d3
+    lea     sector_buf,a1
+    trap    #15
 ```
+
+For FD reads, the 32-bit return value packs FDC result status: bits 31-24 = ST0, 23-16 = ST1, 15-8 = ST2, 7-0 = cylinder number; a return of `-1` ($FFFFFFFF) means a parameter was invalid.
 
 #### _B_WRITE ($45) -- Write Sectors
 
 ```asm
-; Write sectors to disk (same register convention as _B_READ)
+; Write sectors to disk (same register convention as _B_READ; D2 format identical)
+
+; Example: write FD drive 0, track 0, side 0, sector 2 (1024 bytes)
     moveq   #$45,d0             ; _B_WRITE
-    move.l  #$90,d1             ; PDA
-    move.l  #1024,d2            ; write position: second sector
+    move.l  #$90000000,d1       ; PDA = $90 (2HD-FD drive 0)
+    move.l  #$03000002,d2       ; size $03=1024 | track 0 | side 0 | sector 2
     move.l  #1024,d3            ; write 1024 bytes
     lea     sector_buf,a1       ; source data
     trap    #15
@@ -786,28 +822,72 @@ The IOCS provides low-level disk access calls that bypass the Human68k filesyste
 ```asm
 ; Seek to track 0 (recalibrate)
     moveq   #$47,d0             ; _B_RECALI
-    move.l  #$90,d1             ; PDA
+    move.l  #$90000000,d1       ; PDA = $90 (FD drive 0); D1.B mode = 0
     trap    #15
 ```
+
+For 2HD-FD, the return value in `D0.L` packs `ST0` in bits 31-24 and the cylinder number in bits 23-16. After a forced-ready check (mode = `-1`), `ST0` bit 4 set means the drive is not present.
+
+#### _B_DSKINI ($43) -- Initialize Drive
+
+<!-- source: https://datacrystal.tcrf.net/wiki/X68k/IOCS (_B_DSKINI entry) -->
+
+```asm
+; D1.HB = PDA
+; D2.L  = motor-off timeout, 1/100 sec units (0 = default 2 sec); ignored for SASI
+; A1.L  = SASI: assign-drive parameter data pointer
+;         2HD-FD: SPECIFY-command parameter data pointer
+;         (set A1 = 0 to use the default parameters)
+    moveq   #$43,d0             ; _B_DSKINI
+    move.l  #$90000000,d1       ; PDA = $90 (FD drive 0)
+    moveq   #0,d2               ; default motor-off timeout
+    moveq   #0,a1               ; use default SPECIFY parameters
+    trap    #15
+```
+
+For 2HD-FD the return value is the FDC `ST3` register in bits 31-24 (bits 23-0 are undefined). For SASI-HD, a negative value indicates an error.
+
+#### _B_FORMAT ($4D) -- Format a Track
+
+<!-- source: https://datacrystal.tcrf.net/wiki/X68k/IOCS (_B_FORMAT entry) -->
+
+`_B_FORMAT` formats a single track on a 2HD floppy. Parameters: `D1.HB` = PDA (2HD-FD only), `D1.B` = mode (FDC-specific), `D2.L` = track / head selector packed as for `_B_READ` (sector-size code in bits 31-24, track in bits 23-16, side in bits 15-8; the sector field is unused for format), `D3.L` = number of sectors to write per track (typically 8 for the standard X68000 layout), `A1.L` = pointer to a sector-ID table (4 bytes per sector: C, H, R, N -- cylinder, head, record/sector, size code). Returns the same packed FDC-status longword as `_B_READ`.
 
 ---
 
 ### FDC Hardware Registers (uPD72065)
 
-The X68000's floppy disk controller is an NEC **uPD72065** (compatible with the Intel 8272A / NEC uPD765), memory-mapped starting at `$E94000`. The FDC registers are at **odd byte addresses** (the 68000 sees them on the low byte of word reads):
+The X68000's floppy disk controller is an NEC **uPD72065** (software-compatible with the uPD765-family / Intel 8272A, with 3-mode 300/360 rpm support), memory-mapped at `$E94000-$E94007`. All registers are 8-bit and appear on **odd byte addresses** (the 68000 sees them on the low byte of word accesses):
+
+<!-- source: https://raw.githubusercontent.com/mamedev/mame/master/src/mame/sharp/x68k.cpp lines 256-330, 798-799 -->
+<!-- source: https://raw.githubusercontent.com/mamedev/mame/master/src/devices/machine/upd765.cpp lines 80-83 -->
 
 | Address | Register | Access | Description |
 |---------|----------|--------|-------------|
-| `$E94001` | Status Register A | Read | Drive status |
-| `$E94003` | Status Register B | Read | Additional status |
-| `$E94005` | DOR (Digital Output Register) | Write | Drive select, motor control, DMA/reset |
-| `$E94007` | Main Status Register / Data Register | R/W | Status (read) / Command/data (write) |
+| `$E94001` | uPD72065 MSR / Auxiliary Command | R / W | Read: Main Status Register (bit 7 = RQM, bit 6 = DIO, bit 5 = NDM, bit 4 = CB, bits 3-0 = drive-busy flags). Write: auxiliary command (controller-specific, e.g. soft reset). |
+| `$E94003` | uPD72065 FIFO / Data | R/W | Command/parameter/data FIFO -- where command bytes, parameter bytes, result bytes, and (in PIO mode) sector data are exchanged. |
+| `$E94005` | X68k FDC control (drive option) | R/W | Write: drive-select mask in bits 3-0, eject-LED in bit 6, drive-LED in bit 7; writing `$60`-pattern triggers an eject. Read: bit 7 = disk inserted in selected drive. |
+| `$E94007` | X68k FDC control (drive select / motor / data rate) | W | Bits 1-0 = active drive (0-3); bit 4 = data rate (`0` = 500 kbps for 2HD, `1` = 300 kbps for 2DD); bit 7 = motor-on (all drives). |
 
-The FDC uses DMA (via the HD63450 DMAC at `$E84000`) for data transfer. Direct FDC programming is complex and rarely needed -- the IOCS `_B_READ`/`_B_WRITE` calls handle the FDC interaction for you.
+The first two registers (`$E94001`, `$E94003`) are the standard uPD72065 internal map; the latter two (`$E94005`, `$E94007`) are X68000-specific glue registers handled by `x68k_state::fdc_w` / `fdc_r` in MAME, not by the FDC itself. There is no DOR (Digital Output Register) on the uPD72065 in the AT-style sense; the X68000 implements equivalent functionality at `$E94005`/`$E94007`.
 
-**Note on verification**: The register addresses above are confirmed by the MAME emulator source (`src/mame/sharp/x68k.cpp`), which maps FDC read/write handlers at `$E94004-$E94007` (with the odd-byte convention making the effective register addresses `$E94005` and `$E94007`). The X68000 I/O map at Data Crystal and the memory map documentation at mijet.eludevisibility.org corroborate the `$E94000` base address for the FDC region.
+The FDC uses DMA (via the HD63450 DMAC at `$E84000`, channel 0) for sector data transfer. Direct FDC programming is rarely needed -- the IOCS `_B_READ`/`_B_WRITE` calls handle command sequencing for you.
 
-**UNCERTAINTY FLAG**: The exact sub-register layout within the `$E94000-$E94007` range has been reconstructed from emulator source code (MAME, MiSTer FPGA core) rather than from original Sharp documentation. The registers follow standard uPD765-family conventions, but the specific address decoding may have minor variations from what is shown here. Consult the X68000 Technical Data Book ("Inside X68000") for definitive register assignments.
+<!-- source: https://datacrystal.tcrf.net/wiki/X68k/IOCS (FDC return-status bit layout for _B_READ etc.) -->
+
+**uPD72065 command summary** (selection; consult the uPD765-family programmers' manual for full timing and result-byte layouts):
+
+| Command | Phase byte counts (Command / Result) | Notes |
+|---------|----------------------------|-------|
+| SPECIFY | 3 / 0 | Sets step/head-load/unload timings |
+| RECALIBRATE | 2 / 0 (+ SENSE INT STATUS: 1 / 2) | Seek to track 0 |
+| SEEK | 3 / 0 (+ SENSE INT STATUS: 1 / 2) | Seek to specified track |
+| SENSE DRIVE STATUS | 2 / 1 | Returns ST3 |
+| READ DATA | 9 / 7 | Read sector(s); transfers via DMA or PIO |
+| WRITE DATA | 9 / 7 | Write sector(s) |
+| READ ID | 2 / 7 | Read first ID field encountered |
+
+Each command writes its parameter bytes into the FIFO at `$E94003`, then the controller transitions through Execution phase (DMA / PIO data transfer if applicable), then Result phase where the host reads the result bytes back from `$E94003`. Poll `$E94001` MSR bit 7 (RQM) before each transfer; bit 6 (DIO) indicates direction.
 
 ---
 
@@ -839,7 +919,9 @@ The DOS call documentation in this section is sourced primarily from:
 
 2. **run68x source code** (github.com/kg68k/run68x, `human68k.h`) -- Error code definitions (`DOSE_*` constants) are taken directly from this Human68k CUI emulator by TcbnErik. These match the official documentation. **HIGH CONFIDENCE**.
 
-3. **MAME emulator source** (`src/mame/sharp/x68k.cpp`) -- FDC register address mapping. **MEDIUM-HIGH CONFIDENCE** (emulator source, not original documentation).
+3. **MAME emulator source** (`src/mame/sharp/x68k.cpp` and `src/devices/machine/upd765.cpp`) -- FDC register address mapping and uPD72065 internal register map. **MEDIUM-HIGH CONFIDENCE** (emulator source, not original documentation).
+
+3a. **Data Crystal X68k/IOCS wiki page** (datacrystal.tcrf.net/wiki/X68k/IOCS) -- transcribes the IOCS `_B_*` call signatures from the Sharp ROM documentation: PDA encoding, the packed D2.L sector-address format for FD, and SASI-HD's 256-byte record-number convention. **HIGH CONFIDENCE**.
 
 4. **Multiple community sources** (Data Crystal wiki, GameSX wiki, ChibiAkumas tutorials) -- Cross-referenced for IOCS disk call numbers and floppy format parameters. **MEDIUM-HIGH CONFIDENCE**.
 
