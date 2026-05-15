@@ -160,11 +160,34 @@ _NEWFILE    equ $FF5B       ; Create file (error if exists)
 _LOCK       equ $FF5C       ; File locking
 ; $FF5D-$FF5E reserved
 _ASSIGN     equ $FF5F       ; Virtual drive/directory
-; $FF60-$FF7C reserved
+; 060turbo.sys >2 GB-aware memory calls (use $80000000 mask for error sentinel)
+_MALLOC3    equ $FF60       ; Allocate memory (060turbo, >2 GB aware)
+_SETBLOCK2  equ $FF61       ; Resize memory block (060turbo, >2 GB aware)
+_MALLOC4    equ $FF62       ; Allocate memory with mode (060turbo, >2 GB aware)
+_S_MALLOC2  equ $FF63       ; Sub memory alloc (060turbo, >2 GB aware)
+; $FF64-$FF79 reserved
+_FFLUSH_SET equ $FF7A       ; Set FFLUSH behavior flag (parameters: see run68x/dostrace.c)
+_OS_PATCH   equ $FF7B       ; Register OS patch entry, internal (parameters: see run68x/dostrace.c)
+_GET_FCB_ADR equ $FF7C      ; Return File Control Block address for a handle (parameters: see run68x/dostrace.c)
 _S_MALLOC   equ $FF7D       ; Main memory management alloc
 _S_MFREE    equ $FF7E       ; Main memory management free
 _S_PROCESS  equ $FF7F       ; Set sub memory management
-; $FF80-$FFF2 reserved
+; $FF80-$FFAF: v3 renumbered DOS calls ($FF50-$FF7F aliased here)
+; $FFB0-$FFB1: Human68k v3 TwentyOne / MVDIR extensions
+_TWON       equ $FFB0       ; TwentyOne extension (parameters: see run68x/dostrace.c)
+_MVDIR      equ $FFB1       ; MVDIR-style directory move (parameters: see run68x/dostrace.c)
+; $FFB2-$FFDF reserved
+; $FFE0-$FFE4: Virtual-memory wrappers
+_VMALLOC    equ $FFE0       ; Virtual memory allocate (parameters: see run68x/dostrace.c)
+_VMFREE     equ $FFE1       ; Virtual memory free (parameters: see run68x/dostrace.c)
+_VMALLOC2   equ $FFE2       ; Virtual memory allocate with mode (parameters: see run68x/dostrace.c)
+_VSETBLOCK  equ $FFE3       ; Virtual memory resize block (parameters: see run68x/dostrace.c)
+_VEXEC      equ $FFE4       ; Virtual memory exec (parameters: see run68x/dostrace.c)
+; $FFE5-$FFEE reserved
+_GETFONT    equ $FFEF       ; Font-data retrieval (parameters: see run68x/dostrace.c)
+_EXITVC     equ $FFF0       ; Set process-exit vector hook
+_CTRLVC     equ $FFF1       ; Set Ctrl-C handler vector hook
+_ERRJVC     equ $FFF2       ; Set error-jump vector hook
 _DISKRED    equ $FFF3       ; Direct disk read
 _DISKWRT    equ $FFF4       ; Direct disk write
 _INDOSFLG   equ $FFF5       ; Get OS internal workspace ptr
@@ -784,7 +807,8 @@ final:     0  (extra null marks end)
 | Offset | Size | Field |
 |--------|------|-------|
 | $00 | 2 | Magic: `$4855` ("HU") |
-| $02 | 2 | Reserved |
+| $02 | 1 | Reserved |
+| $03 | 1 | `loadMode` (0 = Normal, 1 = Minimum, 2 = High address) |
 | $04 | 4 | Base address |
 | $08 | 4 | Entry point (relative to base) |
 | $0C | 4 | Text section size |
@@ -792,8 +816,12 @@ final:     0  (extra null marks end)
 | $14 | 4 | BSS/heap size |
 | $18 | 4 | Relocation table size |
 | $1C | 4 | Symbol table size |
-| $20 | 32 | Padding |
-| $40+ | | Text, Data, Relocation, Symbols |
+| $20 | 4 | `scdLineSize` (SCD debug: line-info block size) |
+| $24 | 4 | `scdSymSize` (SCD debug: symbol-info block size) |
+| $28 | 4 | `scdStrSize` (SCD debug: string-table block size) |
+| $2C | 16 | Reserved |
+| $3C | 4 | `bindListOffset` (non-zero = BIND-ed executable) |
+| $40+ | | Text, Data, Relocation, Symbols, SCD line, SCD sym, SCD str |
 
 ---
 

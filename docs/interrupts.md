@@ -59,7 +59,7 @@ The MFP generates vectors $40-$4F, mapped to addresses `$000100`-`$00013C`. Thes
 | `$000110` | $44 | Timer D | BG processing (task switching) |
 | `$000114` | $45 | Timer C | Mouse/cursor/FDD control |
 | `$000118` | $46 | GPIP 4 | **V-DISP** (vertical blanking) |
-| `$00011C` | $47 | GPIP 5 | (active low, active edge) |
+| `$00011C` | $47 | GPIP 5 | Unused on X68000 (input held high; see GPIP bit 5 below) <!-- source: https://raw.githubusercontent.com/mamedev/mame/master/src/mame/sharp/x68k.cpp line 906: `m_mfpdev->i5_w(1); // unused (always set)` --> |
 | `$000120` | $48 | Timer B | Timer B interrupt |
 | `$000124` | $49 | USART | Key serial output error |
 | `$000128` | $4A | USART | Key serial output empty |
@@ -77,6 +77,38 @@ The MFP generates vectors $40-$4F, mapped to addresses `$000100`-`$00013C`. Thes
 | Timer B | Serial port clock generation | Baud rate dependent |
 | Timer C | Cursor blink / FDD control | ~200 Hz |
 | Timer D | BG process switching | ~50 Hz |
+
+### MFP Timer Prescaler and Timer Rate
+
+<!-- source: https://raw.githubusercontent.com/mamedev/mame/master/src/devices/machine/mc68901.cpp line 173 (PRESCALER[]) and lines 152, 671, 722, 773, 795 (DIVISOR usage) -->
+
+The MFP timer clock (`TCLK`) on the X68000 is fed from a 4 MHz source (16 MHz crystal / 4; see `x68k.cpp` `set_timer_clock(16_MHz_XTAL / 4)`). Each timer divides `TCLK` by a prescaler selected via the low 3 bits of its control register:
+
+| Bits (2-0) | Prescaler | Tick (with TCLK = 4 MHz) |
+|------------|-----------|--------------------------|
+| `000`      | Stopped   | -                        |
+| `001`      | / 4       | 1.0 us                   |
+| `010`      | / 10      | 2.5 us                   |
+| `011`      | / 16      | 4.0 us                   |
+| `100`      | / 50      | 12.5 us                  |
+| `101`      | / 64      | 16.0 us                  |
+| `110`      | / 100     | 25.0 us                  |
+| `111`      | / 200     | 50.0 us                  |
+
+Timer interrupt rate (in delay mode) = `TCLK / (prescaler * data_register_count)`, where `data_register_count` is 256 if TxDR = 0, else the loaded value.
+
+### TACR / TBCR / TCDCR Layout
+
+<!-- source: mc68901.cpp lines 756, 758, 780 (TCDCR & 0x77, Timer D = bits 0-2, Timer C = bits 4-6) -->
+
+- **TACR ($E88019)**: bits 2-0 select Timer A prescaler (delay mode); bit 3 = reset; bits 4-3 select event/pulse mode.
+- **TBCR ($E8801B)**: same layout as TACR, for Timer B.
+- **TCDCR ($E8801D)**: a single register controlling both Timer C and Timer D.
+  - **Bits 6-4**: Timer C prescaler select (000 stop ... 111 /200).
+  - **Bits 2-0**: Timer D prescaler select (000 stop ... 111 /200).
+  - **Bits 7 and 3**: reset / unused (writes are masked off — MAME writes `data & 0x77`).
+
+Mis-setting the Timer C/D split is a common bug — they share TCDCR, so a write that clobbers the other timer's bits will stop or re-clock it.
 
 ---
 
@@ -233,26 +265,47 @@ raster_handler:
 
 Key scan codes for the X68000 keyboard. Formula: `scancode = group * 8 + bit_position`.
 
+<!-- source: https://datacrystal.tcrf.net/wiki/X68k/IOCS (X68k scan-code chart) -->
+
 ### Common Scan Codes
 
 | Code | Key | Code | Key | Code | Key |
 |------|-----|------|-----|------|-----|
 | $01 | ESC | $02-$0B | 1-9, 0 | $0F | Backspace |
 | $10 | TAB | $11-$1A | Q-P | $1D | Return |
-| $1E-$27 | A-L | $29 | Z | $2A-$32 | X-M |
+| $1E-$26 | A-L | $27 | ;+ | $28 | :* |
+| $29 | ]} | $2A-$30 | Z, X, C, V, B, N, M | $31 | ,< |
+| $32 | .> | $33 | /? | $34 | _ (JP only) |
 | $35 | Space | $36 | HOME | $37 | DEL |
 | $38 | ROLL UP | $39 | ROLL DOWN | $3A | UNDO |
 | $3B | Left | $3C | Up | $3D | Right |
-| $3E | Down | $3F | CLR | $40-$49 | Numpad 0-9 |
-| $55-$57 | XF1-XF3 | $58-$59 | XF4-XF5 | $61 | BREAK |
-| $62 | COPY | $63-$6C | F0-F9 | $70 | SHIFT |
-| $71 | CTRL | $72 | OPT.1 | $73 | OPT.2 |
+| $3E | Down | $3F | CLR | $40-$4F | Numpad (/, *, -, 7, 8, 9, +, 4, 5, 6, =, 1, 2, 3, ENTER, 0) |
+| $55-$57 | XF1-XF3 | $58-$59 | XF4-XF5 | $5A | KANA (JP) |
+| $5B | ROMA-JI (JP) | $5C | CODE INPUT (JP) | $5D | CAPS |
+| $5E | INS | $5F | HIRAGANA (JP) | $60 | ZENKAKU (JP) |
+| $61 | BREAK | $62 | COPY | $63-$6C | F0-F9 |
+| $70 | SHIFT | $71 | CTRL | $72 | OPT.1 |
+| $73 | OPT.2 | | | | |
 
 ### Reading Keyboard State via IOCS
 
+<!-- source: https://datacrystal.tcrf.net/wiki/X68k/IOCS (_BITSNS, d1.w key group 0-$F) -->
+
 ```asm
 ; Check if a specific key group is pressed
-    move.w  #GROUP, d1          ; key group number (0-$F)
+    move.w  #GROUP, d1          ; key group number (0-$F); groups 0-$E populated
     moveq   #$04, d0            ; IOCS _BITSNS
     trap    #15                 ; D0.B = bitmask of pressed keys in group
+                                ;        (bit N set = scan code GROUP*8+N pressed)
 ```
+
+### Related keyboard IOCS calls
+
+<!-- source: https://datacrystal.tcrf.net/wiki/X68k/IOCS -->
+
+| Call | Number | Purpose |
+|------|--------|---------|
+| `_B_KEYINP` | `$00` | Read one key (blocks until input); returns scan code + ASCII in D0 |
+| `_B_KEYSNS` | `$01` | Non-blocking check; D0.L = 0 if no key, $1_???? if pending |
+| `_B_SFTSNS` | `$02` | Return shift-key status (SHIFT/CTRL/OPT/KANA/CAPS/etc. as bit flags) |
+| `_BITSNS`   | `$04` | Bitmap of currently-pressed keys in one 8-key group |

@@ -36,13 +36,52 @@ The graphic VRAM (GVRAM) occupies a 2 MB memory-mapped region (`$C00000`-`$DFFFF
 
 The GVRAM supports multiple pages. The number of available pages depends on the color mode:
 
-| Color Mode | Pages | Bits Used Per Pixel | Page Addresses (512x512) |
+| Color Mode | Pages | Bits Used Per Pixel | Page Alias Addresses (512x512) |
 |-----------|-------|--------------------|-----------------------|
-| 16-color | 4 pages | Low 4 bits of word | Page 0: `$C00000`, Page 1: `$C80000`, Page 2: `$D00000`, Page 3: `$D80000` |
-| 256-color | 2 pages | Low 8 bits of word | Page 0: `$C00000`, Page 1: `$C80000` |
+| 16-color | 4 pages | 4 bits per page (one nibble) | Page 0: `$C00000`, Page 1: `$C80000`, Page 2: `$D00000`, Page 3: `$D80000` |
+| 256-color | 2 pages | 8 bits per page (one byte) | Page 0: `$C00000`, Page 1: `$C80000` |
 | 65536-color | 1 page | Full 16 bits | Page 0: `$C00000` |
 
-Each page is 512 KB in size (512 x 512 pixels x 2 bytes/pixel = 524,288 bytes).
+#### GVRAM Memory Model (Critical)
+
+GVRAM is physically a **single 512 KB buffer of 16-bit words** at `$C00000`. The "pages" at `$C80000`, `$D00000`, and `$D80000` are **CRTC-decoded aliases** of the same word: writing through an alias is auto-masked and shifted by hardware into the correct field of the underlying word. Both views are valid -- the alias view is convenient for per-page drawing, while the shared-word view is essential for understanding how multiple pages coexist in one word, for double-buffering, and for fast multi-page operations.
+
+<!-- source: MAME src/mame/sharp/x68k_crtc.cpp lines 504-516 (doc comment) and 543-559 (impl) -->
+
+In **16-color mode**, the underlying word at `$C00000 + offset` packs all 4 pages as nibbles:
+
+```
+Bit: 15 12 11  8  7  4  3  0
+     [P3 ][P2 ][P1 ][P0 ]
+```
+
+| Page | Mask in shared word | Alias address that writes that nibble |
+|------|---------------------|---------------------------------------|
+| Page 0 | `$000F` (bits 3-0)  | `$C00000` |
+| Page 1 | `$00F0` (bits 7-4)  | `$C80000` |
+| Page 2 | `$0F00` (bits 11-8) | `$D00000` |
+| Page 3 | `$F000` (bits 15-12)| `$D80000` |
+
+A word write to `$C80000 + offset` is mapped by the CRTC to `$C00000 + offset` with mask `$00F0`, shifting the low nibble of the written value into bits 7-4. The other nibbles in the shared word are preserved.
+
+In **256-color mode**, the underlying word packs 2 pages as low byte and high byte:
+
+| Page | Mask in shared word | Alias address |
+|------|---------------------|---------------|
+| Page 0 | `$00FF` (low byte)  | `$C00000` |
+| Page 1 | `$FF00` (high byte) | `$C80000` |
+
+In **65536-color mode**, the full 16-bit word is one pixel and there is only one page.
+
+Each page is 512 KB in size (512 x 512 pixels x 2 bytes/pixel = 524,288 bytes). The total GVRAM is also 512 KB -- the alias regions sum to 2 MB of address space, but they all map to the same 512 KB of physical memory.
+
+**Practical implication**: in 16-color mode, plotting a pixel on page 0 via `$C00000` and plotting on page 3 via `$D80000` write into different nibbles of the **same** word. Reading back through `$C00000` returns the full packed word, not just page 0. Double-buffering strategies that alternate "live" and "back" pages exploit this -- both buffers cost a single word per pixel, and the visible page is selected by VC R1 priority bits, not by copying memory.
+
+#### High-Speed Page Clear ($E80480)
+
+The CRTC provides a hardware-accelerated GVRAM clear. Writing **bit 1** to the CRTC operation register at `$E80480` triggers a fast clear of GVRAM. The clear is masked by CRTC R21's page-select nibble (bits 4-7), so you can clear one or more selected pages without touching the others. This is much faster than a CPU loop and is the preferred mechanism for per-frame back-buffer wipes. IOCS `_G_CLR_ON` is a higher-level wrapper that enables the screen and clears at the same time.
+
+<!-- source: MAME src/mame/sharp/x68k_crtc.cpp lines 413-460 -->
 
 #### Pixel Address Calculation
 
@@ -84,9 +123,13 @@ Bit: 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
 - **Bits 15-11**: Green (5 bits, 0-31)
 - **Bits 10-6**: Red (5 bits, 0-31)
 - **Bits 5-1**: Blue (5 bits, 0-31)
-- **Bit 0**: Intensity/brightness (1 = brighter)
+- **Bit 0**: Intensity (shared LSB across all three channels)
 
 This is **not** the standard RGB order. The X68000 uses **Green-Red-Blue** ordering. Color `$0000` is black; `$FFFE` is bright white without intensity; `$FFFF` is maximum brightness white.
+
+**How intensity actually combines with each channel**: each 5-bit channel is left-shifted by 1 and the I bit is ORed back into the LSB, producing a 6-bit value per channel. In MAME's renderer this is `pal6bit(((raw >> n) & 0x3e) | i)`. I is therefore **not** a separate brightness multiplier -- it adds 1 LSB (in 6-bit space) to every channel uniformly. So `$FFFE` is `(G=62, R=62, B=62)` in 6-bit space, and `$FFFF` is `(63, 63, 63)`. A pure-red entry with I set (`$07C1`) becomes 6-bit `(G=1, R=63, B=1)` -- the I bit slightly lifts green and blue along with red.
+
+<!-- source: MAME src/mame/sharp/x68k_v.cpp lines 43-50 -->
 
 Examples:
 - Pure red (max): `%00000_11111_00000_0` = `$07C0`
@@ -146,6 +189,18 @@ The text plane is typically used by Human68k for the console display (using the 
 The text plane has hardware scroll support via CRTC registers:
 - **R10** (`$E80014`) -- Text screen X scroll position
 - **R11** (`$E80016`) -- Text screen Y scroll position
+
+#### Simultaneous-Plane Write Mode (CRTC R21)
+
+The CRTC supports a TVRAM accelerator that broadcasts a single CPU write to multiple planes in one bus cycle. This is the fastest way to fill or clear text-plane regions and is commonly used for clearing the console or flooding a status bar.
+
+- **R21 bit 8** -- enables simultaneous-plane write mode.
+- **R21 bits 4-7** -- one bit per plane (0-3); set bits select the planes that receive the broadcast write.
+- **R23** -- bit mask applied to the broadcast write (only bits set in R23 are actually written through to the selected planes).
+
+With R21 bit 8 set, one `move.w` to any TVRAM word address writes that value into every selected plane simultaneously, masked by R23. Clear the mode when finished, otherwise normal per-plane writes will continue to broadcast.
+
+<!-- source: MAME src/mame/sharp/x68k_crtc.cpp lines 567-593 -->
 
 ---
 
@@ -219,6 +274,20 @@ Each palette entry uses the same 16-bit GRBi format as the GVRAM direct color.
 
 The sprite and BG system uses 16 palette blocks of 16 colors each (256 total entries). Block 0 overlaps with the text palette at `$E82200`. The full sprite palette area begins at `$E82200`.
 
+#### VC Register Mirroring
+
+VC R0, R1, and R2 each occupy a single 16-bit register but are mirrored across a 256-byte window. Any even address in the mirror window reads/writes the same register:
+
+| Register | Canonical address | Mirrored across |
+|----------|-------------------|-----------------|
+| VC R0 | `$E82400` | `$E82400-$E824FE` |
+| VC R1 | `$E82500` | `$E82500-$E825FE` |
+| VC R2 | `$E82600` | `$E82600-$E826FE` |
+
+Most code uses the canonical address; mirror reads sometimes appear in obfuscated or hand-optimized routines.
+
+<!-- source: MAME src/mame/sharp/x68k.cpp lines 512-543 -->
+
 #### VC R0 -- Color Mode / GVRAM Size ($E82400)
 
 ```
@@ -253,7 +322,7 @@ Controls which layers are visible:
 
 ```
 Bit: 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
-      -  -  -  -  -  -  -  -  BC SON TON  -  G3  G2  G1  G0
+      -  -  -  -  -  -  -  -  BC SON TON GE  G3  G2  G1  G0
 ```
 
 | Bit | Name | Description |
@@ -261,7 +330,8 @@ Bit: 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
 | 7 | BCON | Border color on/off |
 | 6 | SON | Sprite screen: 1=on, 0=off |
 | 5 | TON | Text screen: 1=on, 0=off |
-| 3-0 | G3-G0 | Graphic pages 3-0: 1=on, 0=off |
+| 4 | GE | 1024x1024-mode graphic-screen enable (gates GVRAM display when CRTC R20 SZ=1) <!-- source: MAME src/mame/sharp/x68k_v.cpp line 229 --> |
+| 3-0 | G3-G0 | Graphic pages 3-0 (512x512 mode): 1=on, 0=off |
 
 Example: Enable text + graphic page 0 + sprites:
 ```asm
@@ -278,8 +348,10 @@ Example: Enable text + graphic page 0 + sprites:
 
 The X68000 sprite system is similar to arcade hardware (CPS-1 era). It supports:
 - **128 sprites** on screen simultaneously
-- **32 sprites per scanline** maximum
+- **32 sprites per scanline** maximum [^sprites-per-scanline]
 - **256 sprite patterns** stored in PCG (Pattern Character Generator) RAM
+
+[^sprites-per-scanline]: Sharp's documented spec (Inside X68000 / X68000 Technical Data Book) gives the per-scanline limit as 32. A source comment in MAME's `x68k_v.cpp` (line 26) says "max 16" -- the 32 figure is the canonical Sharp value and is retained here; the MAME comment appears to reflect emulator-internal rendering rather than the hardware spec.
 - Each sprite is **16x16 pixels** at **4 bits per pixel** (16 colors from one palette block)
 - **2 independent BG (background) planes**, each 64x64 tiles
 
@@ -337,6 +409,36 @@ The X68000 has 2 BG planes. Each BG plane is a 64x64 tile map where each tile re
 Each nametable word references a pattern number (0-255) and optional attributes (palette block, flip). BG tiles can be 8x8 or 16x16 depending on configuration.
 
 BG nametable addresses and BG0/BG1 assignment confirmed by MAME `spriteram_w()`: BG1 at word offset $2000 from $EB8000 = $EBC000, BG0 at word offset $3000 = $EBE000.
+
+#### BG / Sprite Control Registers ($EB0800-$EB0810)
+
+The block at `$EB0800` controls BG scroll and the BG/sprite enable flags.
+
+<!-- source: MAME src/mame/sharp/x68k_v.cpp lines 470-500 -->
+
+| Address | Description |
+|---------|-------------|
+| `$EB0800` | BG0 X scroll (word) |
+| `$EB0802` | BG0 Y scroll (word) |
+| `$EB0804` | BG1 X scroll (word) |
+| `$EB0806` | BG1 Y scroll (word) |
+| `$EB0808` | BG control register (see bit layout below) |
+| `$EB080A` | H-total (BG/sprite horizontal timing) |
+| `$EB080C` | H-display position |
+| `$EB080E` | V-display position |
+| `$EB0810` | Resolution / tile-size control (selects 8x8 vs 16x16 BG tiles, H/V resolution) |
+
+**$EB0808 -- BG control register bit layout**:
+
+| Bit | Name | Description |
+|-----|------|-------------|
+| 9 | DISP | BG/sprite display enable. Also acts as a "fast access" gate -- CPU access to PCG/BG memory is unrestricted while this bit is 0 (display off). |
+| 4 | PCG1 | PCG area 1 enable |
+| 3 | BG1E | BG1 plane enable |
+| 1 | PCG0 | PCG area 0 enable |
+| 0 | BG0E | BG0 plane enable |
+
+`$EB0810` selects BG tile size (8x8 vs 16x16) along with the BG/sprite raster resolution. Setting tiles to 16x16 halves the effective BG map dimensions (in tiles).
 
 ---
 
@@ -495,6 +597,8 @@ Bit: 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
 ```
 
 For text palette entries, bit 0 may function as a transparency flag (T) rather than intensity.
+
+The I bit is combined with each channel as described under "16-Bit Color Format (GRBi)" above: each 5-bit channel is shifted left by 1 and the I bit is ORed into the LSB, yielding a 6-bit value per channel. Intensity is a shared per-channel LSB, not a separate brightness multiplier.
 
 ---
 

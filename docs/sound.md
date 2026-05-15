@@ -79,7 +79,7 @@ So for example, to address the TL (Total Level) register of channel 3, operator 
 |----------|------|-------------|
 | `$01` | `------LT` | Test register. Bit 1 (L): LFO reset -- write 1 then 0 to restart LFO. Bit 0 (T): test mode (do not set). |
 | `$08` | `-SSSSccc` | **Key On/Off**. Bits 6-3 (S): slot enable for operators C2, M2, C1, M1 respectively. Bits 2-0 (c): channel number (0-7). Write with S bits=1 to key on, S bits=0 to key off. |
-| `$0F` | `N---nnnnn` | Noise. Bit 7 (N): noise enable on channel 7 only. Bits 4-0 (n): noise frequency (0=highest, 31=lowest). |
+| `$0F` | `N--nnnnn` | Noise. Bit 7 (N): noise enable on channel 7 only. Bits 4-0 (n): noise frequency (0=highest, 31=lowest). |<!-- source: https://raw.githubusercontent.com/aaronsgiles/ymfm/main/src/ymfm_opm.h lines 59-60 -->
 | `$10` | `aaaaaaaa` | Timer A high 8 bits (bits 9-2 of 10-bit counter). |
 | `$11` | `------aa` | Timer A low 2 bits (bits 1-0). |
 | `$12` | `bbbbbbbb` | Timer B (8-bit counter). |
@@ -108,7 +108,7 @@ Operator offsets: M1=`+$00`, M2=`+$08`, C1=`+$10`, C2=`+$18`.
 | `$80+` | `KK-aaaaa` | **Key Scaling + Attack Rate**. KS (bits 7-6): faster envelopes at higher pitches (0-3). AR (bits 4-0): attack rate (0-31, 31=instant). |
 | `$A0+` | `E---ddddd` | **AMS-Enable + Decay 1 Rate**. Bit 7: enable LFO amplitude modulation. D1R (bits 4-0): first decay rate (0-31). |
 | `$C0+` | `TT-ddddd` | **Detune 2 + Decay 2 Rate**. DT2 (bits 7-6): coarse detune (0-3). D2R (bits 4-0): second decay rate (0-31). |
-| `$E0+` | `LLLLrrrr` | **Decay 1 Level + Release Rate**. D1L (bits 7-4): sustain level (0=max vol, 15=silence). RR (bits 3-0): release rate (0-15, effective rate = 2*RR+1). |
+| `$E0+` | `LLLLrrrr` | **Decay 1 Level + Release Rate**. D1L (bits 7-4): sustain level (0=max vol, 15=silence). RR (bits 3-0): release rate (0-15, effective rate = 4*RR+2 before KS adjustment). |<!-- source: https://raw.githubusercontent.com/aaronsgiles/ymfm/main/src/ymfm_opm.cpp line 303 (`effective_rate(op_release_rate(opoffs) * 4 + 2, ksrval)`) -->
 
 #### Key Code (KC) Note Table
 
@@ -359,13 +359,16 @@ MDX file structure:
 4. Voice definitions (YM2151 instrument patches)
 5. Per-channel MML command byte streams
 
-MDX command encoding (selected):
+MDX command encoding (selected, verified against MXDRV 2.06+17 disassembly):
+<!-- source: https://raw.githubusercontent.com/vampirefrog/x68kd11s/master/sound/mxdrv/2.06%2B17_Rel.X5-S/mxdrv17.s (CommandFuncs dispatch table at L00122e / L001240) -->
 - `$80`-`$DF`: note data (pitch + duration)
 - `$FF n`: set tempo
-- `$FC`: key off
+- `$FE`: write OPM register (raw OPM write)
 - `$FD n`: set voice/instrument
+- `$FC n`: pan (output L/R select)
 - `$F6 n $00`: repeat start (n times)
 - `$F5 nn`: repeat end (relative offset, signed word)
+- Note: there is no explicit "key off" command byte; key-off is driven by note duration and the legato flag.
 
 #### Z-MUSIC (ZMD/ZPD/ZMS format)
 

@@ -10,7 +10,7 @@ The Sharp X68000 is a home computer released in 1987 in Japan, powered by a Moto
 
 | Feature | X68000 (1987) | X68000 XVI (1991) | X68030 (1993) |
 |---------|---------------|--------------------|--------------------|
-| CPU | MC68000 @ 10 MHz | MC68000 @ 16 MHz | MC68030 @ 25 MHz |
+| CPU | MC68000 @ 10 MHz | MC68000 @ 10/16 MHz switchable | MC68030 @ 25 MHz |
 | RAM | 1 MB (max 12 MB) | 2 MB (max 12 MB) | 4 MB (max 12 MB) |
 | VRAM | 512 KB + 512 KB | 512 KB + 512 KB | 512 KB + 512 KB |
 | Graphics | 65,536 colors, 512x512 / 768x512 | Same | Same |
@@ -37,16 +37,20 @@ The Sharp X68000 is a home computer released in 1987 in Japan, powered by a Moto
 | `$E8E000-$E8FFFF` | System port |
 | `$E90000-$E91FFF` | FM sound -- OPM (YM2151) |
 | `$E92000-$E93FFF` | ADPCM (MSM6258) |
-| `$E94000-$E95FFF` | FDC (uPD72065) |
-| `$E96000-$E97FFF` | HDC / SCSI (MB89352) |
+| `$E94000-$E95FFF` | FDC (uPD72065B on early models) |
+| `$E96000-$E97FFF` | HDC / SCSI (MB89352A on XVI/X68030 internal) |
 | `$E98000-$E99FFF` | SCC (Z8530) -- serial, mouse |
-| `$E9A000-$E9BFFF` | I/O controller (PPI) |
-| `$EA0000-$EAFFFF` | I/O expansion area |
+| `$E9A000-$E9BFFF` | PPI (8255) -- joystick, system control |
+| `$E9C000-$E9DFFF` | IOC -- interrupt / sound IRQ logic |
+| `$EA0000-$EA1FFF` | External I/O expansion area |
 | `$EB0000-$EB7FFF` | Sprite scroll data + control registers |
 | `$EB8000-$EBFFFF` | Sprite/BG pattern (PCG) data |
-| `$EC0000-$ECBFFF` | BG nametables and scroll registers |
-| `$F00000-$FBFFFF` | User I/O area |
-| `$FC0000-$FFFFFF` | BIOS ROM (256 KB) |
+| `$EC0000-$ECBFFF` | User I/O expansion |
+| `$ECE000-$ECE3FF` | User I/O area |
+| `$ED0000-$ED3FFF` | Battery-backed SRAM (16 KB) |
+| `$F00000-$FBFFFF` | CGROM (character generator ROM) |
+| `$FC0000-$FDFFFF` | Internal SCSI ROM |
+| `$FE0000-$FFFFFF` | IPLROM (128 KB) |
 
 ## Operating System: Human68k
 
@@ -84,6 +88,8 @@ IOCS (Input/Output Control System) calls use TRAP #15 with the function number i
 
 ## Documentation
 
+> **Stuck on a value that doesn't work?** See [KNOWN_DISCREPANCIES.md](KNOWN_DISCREPANCIES.md) for documented alternates — chip-revision quirks, conflicting historical references, and IOCS function numbers that differ between toolchains.
+
 ### Reference Guides
 
 | Document | Description |
@@ -93,6 +99,7 @@ IOCS (Input/Output Control System) calls use TRAP #15 with the function number i
 | [Sound System](docs/sound.md) | YM2151 FM synthesis, MSM6258 ADPCM, OPM register map, IOCS sound calls, MXDRV/Z-MUSIC drivers |
 | [Disk I/O and File System](docs/disk-io.md) | File operations, floppy/SCSI disk, sector-level IOCS calls, FDC hardware |
 | [Interrupts and Exceptions](docs/interrupts.md) | Exception vectors, MFP registers, V-blank/raster interrupts, keyboard scan codes |
+| [Known Discrepancies](KNOWN_DISCREPANCIES.md) | Fallback values when canonical docs don't match your environment — chip revisions, emulator quirks, conflicting refs |
 
 ### Code Examples
 
@@ -110,6 +117,20 @@ All examples use HAS.X / Motorola syntax and can be assembled with `vasmm68k_mot
 | [file_write.s](examples/file_write.s) | Create and write to a file |
 | [file_read.s](examples/file_read.s) | Read a file and print to stdout |
 | [dir_list.s](examples/dir_list.s) | Directory listing with _FILES/_NFILES |
+| [vblank_wait.s](examples/vblank_wait.s) | Sync main loop to V-DISP via MFP GPIP polling |
+| [joypad_read.s](examples/joypad_read.s) | Poll Joystick 1 via IOCS _JOYGET |
+| [vblank_irq.s](examples/vblank_irq.s) | Install a V-DISP interrupt handler via _VDISPST |
+| [double_buffer.s](examples/double_buffer.s) | Two-page GVRAM flip synced to V-blank |
+| [palette_fade.s](examples/palette_fade.s) | Animated palette fade-in / fade-out |
+| [bg_scroll.s](examples/bg_scroll.s) | Hardware-scroll a BG0 plane with a PCG tile |
+| [raster_split.s](examples/raster_split.s) | Mid-frame palette swap via raster interrupt |
+| [sprite_anim.s](examples/sprite_anim.s) | Animate a sprite across 4 PCG frames |
+| [mfp_timer.s](examples/mfp_timer.s) | Install an MFP Timer-D handler at ~100 Hz |
+| [super_peek.s](examples/super_peek.s) | Enter supervisor mode with _SUPER and dump vectors |
+| [file_seek.s](examples/file_seek.s) | _SEEK to compute file size and read the tail |
+| [sector_read.s](examples/sector_read.s) | IOCS _B_READ sector dump (packed FD address form) |
+| [mem_alloc.s](examples/mem_alloc.s) | _SETBLOCK + _MALLOC + _MFREE memory lifecycle |
+| [adpcm_dma_loop.s](examples/adpcm_dma_loop.s) | Streaming ADPCM playback (simplified single-buffer hand-off) |
 
 ## Development Tools
 
@@ -128,7 +149,7 @@ All examples use HAS.X / Motorola syntax and can be assembled with `vasmm68k_mot
   ```bash
   vasmm68k_mot -Ftos -o HELLO.X hello.s
   ```
-- **[run68](https://github.com/kg68k/run68)** — Human68k emulator for running .X executables on the host
+- **[run68x](https://github.com/kg68k/run68x)** — Human68k emulator for running .X executables on the host
 
 ### Emulators
 
@@ -173,12 +194,12 @@ All examples use HAS.X / Motorola syntax and can be assembled with `vasmm68k_mot
 
 ### Primary Documentation
 - [Human68k DOS_en.txt](https://mijet.eludevisibility.org/X68000%20Technical%20Documents/English%20X68k%20Docs/DOS_en.txt) — English translation of official Human68k DOS call manual (v3.02)
-- [Data Crystal X68k](https://datacrystal.tcrf.net/wiki/X68k) — IOCS calls, DOS calls, I/O map
+- Data Crystal X68k — [Overview](https://datacrystal.tcrf.net/wiki/X68k/Overview), [IOMAP](https://datacrystal.tcrf.net/wiki/X68k/IOMAP), [IOCS](https://datacrystal.tcrf.net/wiki/X68k/IOCS), [DOSCALL](https://datacrystal.tcrf.net/wiki/X68k/DOSCALL), [TRAP](https://datacrystal.tcrf.net/wiki/X68k/TRAP)
 - [X68000 Technical Data Book](https://gamesx.com/wiki/doku.php?id=x68000:x68000_technical_data_book) — official hardware reference
 - [ChibiAkumas X68000 Assembly](https://www.chibiakumas.com/68000/x68000.php) — comprehensive tutorial with code examples
 
 ### Source Code
-- [Human68k source code](https://github.com/kg68k/Human68k-ipa) — open-sourced Human68k kernel (IPA release)
+- Human68k source code — open-sourced Human68k kernel, IPA release (see Human68k mirrors on GitHub)
 - [xdev68k](https://github.com/yosshin4004/xdev68k) — modern cross-development environment
 - [FedericoTech/X68KTutorials](https://github.com/FedericoTech/X68KTutorials) — working assembly examples
 - [run68x](https://github.com/kg68k/run68x) — Human68k emulator with source
